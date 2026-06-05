@@ -42,9 +42,17 @@ jobs:
 
     - name: نصب و راه‌اندازی تونل Ngrok برای دسترسی به محیط گرافیکی
       run: |
-        # دانلود ابزار نگراک برای فوروارد پورت RDP
-        Invoke-WebRequest https://bin.equinox.io/c/bTsD89q6id5/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-        Expand-Archive ngrok.zip
+        # دانلود آخرین نسخه پایدار ابزار نگراک برای ویندوز
+        Invoke-WebRequest -Uri "https://bin.equinox.io/c/bTsD89q6id5/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip" -ErrorAction SilentlyContinue
+        
+        # در صورتی که لینک اول با خطا مواجه شد، از لینک مستقیم و پایدار دوم استفاده می‌کند
+        if (!(Test-Path "ngrok.zip") -or (Get-Item "ngrok.zip").Length -lt 1000) {
+            Write-Host "Using fallback download URL for Ngrok..."
+            Invoke-WebRequest -Uri "https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+        }
+        
+        # خارج کردن فایل از حالت فشرده
+        Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
         
         # تنظیم توکن نگراک
         .\ngrok\ngrok.exe config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
