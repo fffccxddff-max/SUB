@@ -40,30 +40,31 @@ jobs:
         Add-LocalGroupMember -Group "Administrators" -Member $Username -ErrorAction SilentlyContinue
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction SilentlyContinue
 
-    - name: نصب و راه‌اندازی تونل Ngrok برای دسترسی به محیط گرافیکی
+    - name: نصب و راه‌اندازی نگراک با استفاده از چاکلتی (روش فوق‌پایدار)
       run: |
-        # دانلود آخرین نسخه پایدار ابزار نگراک برای ویندوز
-        Invoke-WebRequest -Uri "https://bin.equinox.io/c/bTsD89q6id5/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip" -ErrorAction SilentlyContinue
+        # نصب مستقیم نگراک با استفاده از مدیریت بسته رسمی ویندوز (Chocolatey)
+        choco install ngrok --no-progress -y
         
-        # در صورتی که لینک اول با خطا مواجه شد، از لینک مستقیم و پایدار دوم استفاده می‌کند
-        if (!(Test-Path "ngrok.zip") -or (Get-Item "ngrok.zip").Length -lt 1000) {
-            Write-Host "Using fallback download URL for Ngrok..."
-            Invoke-WebRequest -Uri "https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+        # پیدا کردن مسیر اجرای نگراک و تنظیم توکن امنیتی
+        $ngrokPath = "C:\ProgramData\chocolatey\bin\ngrok.exe"
+        if (!(Test-Path $ngrokPath)) {
+            $ngrokPath = "ngrok" # اگر در مسیر پیش‌فرض نبود از متغیر سراسری استفاده کند
         }
         
-        # خارج کردن فایل از حالت فشرده
-        Expand-Archive ngrok.zip -DestinationPath .\ngrok -Force
+        # وارد کردن توکن نگراک از بخش سکرت‌ها
+        & $ngrokPath config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
         
-        # تنظیم توکن نگراک
-        .\ngrok\ngrok.exe config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
+        # اجرای تونل RDP روی پورت استاندارد ۳۳۸۹ ویندوز به صورت پس‌زمینه
+        Start-Process $ngrokPath -ArgumentList "tcp 3389"
         
-        # اجرای تونل RDP در پس‌زمینه روی پورت ۳۳۸۹ ریموت دسکتاپ
-        Start-Process .\ngrok\ngrok.exe -ArgumentList "tcp 3389"
-        
-        # نمایش آدرس اتصال به ریموت دسکتاپ
+        # ۱۰ ثانیه صبر برای برقرار شدن ارتباط با سرورهای نگراک
         Start-Sleep -Seconds 10
+        
+        # دریافت آدرس عمومی ریموت دسکتاپ از API محلی نگراک
         $output = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels
         $public_url = $output.tunnels[0].public_url
+        
+        # چاپ مشخصات نهایی برای اتصال شما
         Write-Host "==========================================================" -ForegroundColor Green
         Write-Host "RDP Address: $public_url" -ForegroundColor Green
         Write-Host "Username: RdpRunnerAdmin" -ForegroundColor Green
