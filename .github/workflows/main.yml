@@ -16,18 +16,29 @@ jobs:
     - name: تنظیم ابزارهای C++ (MSVC)
       uses: ilammy/msvc-dev-cmd@v1
 
-    - name: فعال‌سازی و تنظیم ریموت دسکتاپ (RDP) در ویندوز
+    - name: فعال‌سازی، راه‌اندازی سرویس RDP و تنظیم فایروال ویندوز
+      shell: powershell
       run: |
-        # فعال‌سازی ریموت دسکتاپ در رجیستری ویندوز رانر
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+        Write-Host "Configuring Remote Desktop Services..."
         
-        # تعریف نام کاربری جدید برای جلوگیری از تداخل با کاربران سیستم
+        # ۱. فعال‌سازی ریموت دسکتاپ در رجیستری
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        
+        # ۲. غیرفعال کردن NLA برای سازگاری کامل با کلاینت‌های موبایل (بسیار مهم)
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+        
+        # ۳. تنظیم و استارت اجباری سرویس ریموت دسکتاپ ویندوز (TermService)
+        Set-Service -Name "TermService" -StartupType Automatic
+        Start-Service -Name "TermService" -Force
+        
+        # ۴. باز کردن کامل فایروال ویندوز برای پورت RDP (3389)
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        netsh advfirewall firewall set rule group="remote desktop" new enable=Yes
+        
+        # ۵. ساخت کاربر ادمین برای اتصال شما
         $Username = "RdpRunnerAdmin"
         $Password = ConvertTo-SecureString "GitHubWin10SecureP@ss!" -AsPlainText -Force
         
-        # بررسی وجود کاربر و ساخت یا آپدیت آن
         if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
             Write-Host "User $Username already exists. Updating password..."
             Set-LocalUser -Name $Username -Password $Password
@@ -36,23 +47,25 @@ jobs:
             New-LocalUser $Username -Password $Password -Description "RDP Admin User"
         }
         
-        # اضافه کردن کاربر به گروه‌های دسترسی ادمین و ریموت دسکتاپ
+        # اضافه کردن کاربر به گروه‌های ادمین و ریموت دسکتاپ
         Add-LocalGroupMember -Group "Administrators" -Member $Username -ErrorAction SilentlyContinue
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction SilentlyContinue
+        
+        Write-Host "RDP and User Configuration completed successfully!"
 
-    - name: دانلود و راه‌اندازی تونل مستقیم Bore (بدون نیاز به توکن و مناسب برای گوشی)
+    - name: دانلود و راه‌اندازی تونل مستقیم Bore (مناسب برای گوشی)
       shell: powershell
       run: |
         Write-Host "Downloading Bore Tunnel..."
-        # دانلود ابزار سبک و مستقیم Bore
+        # دانلود ابزار Bore برای ویندوز
         Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-pc-windows-msvc.zip" -OutFile "bore.zip"
         Expand-Archive bore.zip -DestinationPath .\bore -Force
         
         Write-Host "Starting Bore Tunnel..."
-        # فوروارد مستقیم پورت ۳۳۸۹ روی سرور عمومی bore.pub
+        # فوروارد پورت RDP روی سرور عمومی
         Start-Process .\bore\bore.exe -ArgumentList "local 3389 --to bore.pub" -RedirectStandardOutput ".\bore.log" -RedirectStandardError ".\bore_err.log"
         
-        # انتظار ۱۰ ثانیه‌ای برای تخصیص پورت توسط سرور اصلی
+        # ۱۰ ثانیه انتظار برای تخصیص پورت
         Start-Sleep -Seconds 10
         
         $attempts = 0
@@ -62,7 +75,6 @@ jobs:
             $attempts++
             if (Test-Path ".\bore.log") {
                 $log_content = Get-Content ".\bore.log" -Raw
-                # پیدا کردن پورت اختصاص داده شده به صورت bore.pub:XXXXX
                 if ($log_content -match "bore\.pub:\d+") {
                     $direct_address = $matches[0]
                 }
@@ -74,14 +86,14 @@ jobs:
         
         if ($null -ne $direct_address) {
             Write-Host "==========================================================" -ForegroundColor Green
-            Write-Host "BORE DIRECT TUNNEL ACTIVE!" -ForegroundColor Green
+            Write-Host "BORE DIRECT TUNNEL IS ONLINE!" -ForegroundColor Green
             Write-Host "Connect with your phone using this exact address:" -ForegroundColor Green
             Write-Host "Address: $direct_address" -ForegroundColor Yellow
             Write-Host "Username: RdpRunnerAdmin" -ForegroundColor Green
             Write-Host "Password: GitHubWin10SecureP@ss!" -ForegroundColor Green
             Write-Host "==========================================================" -ForegroundColor Green
         } else {
-            Write-Host "Bore failed to respond. Showing error logs:" -ForegroundColor Red
+            Write-Host "Bore failed to respond. Recent logs:" -ForegroundColor Red
             if (Test-Path ".\bore_err.log") {
                 Get-Content ".\bore_err.log" -Tail 20
             }
