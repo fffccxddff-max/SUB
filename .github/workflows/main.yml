@@ -1,0 +1,65 @@
+name: Windows 10 Keep Alive RDP
+
+# اجرای دستی یا دریافت ریکوئست از API (توسط کد C++)
+on:
+  workflow_dispatch:
+
+jobs:
+  build_and_run:
+    runs-on: windows-latest
+    timeout-minutes: 360 # حداکثر زمان مجاز گیت‌هاب اکشن (۶ ساعت)
+
+    steps:
+    - name: دریافت کدهای مخزن
+      uses: actions/checkout@v4
+
+    - name: تنظیم ابزارهای C++ (MSVC)
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: فعال‌سازی و تنظیم ریموت دسکتاپ (RDP) در ویندوز
+      run: |
+        # فعال‌سازی ریموت دسکتاپ در رجیستری ویندوز رانر
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+        
+        # ساخت یک کاربر دلخواه برای ورود به سیستم
+        $Password = ConvertTo-SecureString "GitHubWin10SecureP@ss!" -AsPlainText -Force
+        New-LocalUser "RunnerAdmin" -Password $Password -Description "RDP Admin User"
+        Add-LocalGroupMember -Group "Administrators" -Member "RunnerAdmin"
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RunnerAdmin"
+
+    - name: نصب و راه‌اندازی تونل Ngrok برای دسترسی به محیط گرافیکی
+      run: |
+        # دانلود ابزار نگراک برای فوروارد پورت RDP
+        Invoke-WebRequest https://bin.equinox.io/c/bTsD89q6id5/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+        Expand-Archive ngrok.zip
+        
+        # تنظیم توکن نگراک (باید این سکرت را هم در تنظیمات مخزن ست کنید یا به صورت مستقیم موقتاً قرار دهید)
+        # در صورت تمایل می‌توانید توکن نگراک را هم به عنوان سکرت NGROK_AUTH_TOKEN اضافه کنید
+        .\ngrok\ngrok.exe config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
+        
+        # اجرای تونل RDP در پس‌زمینه روی پورت ۳۳۸۹ ریموت دسکتاپ
+        Start-Process .\ngrok\ngrok.exe -ArgumentList "tcp 3389"
+        
+        # نمایش آدرس اتصال به ریموت دسکتاپ
+        Start-Sleep -Seconds 10
+        $output = Invoke-RestMethod -Uri http://127.0.0.1:4040/api/tunnels
+        $public_url = $output.tunnels[0].public_url
+        Write-Host "==========================================================" -ForegroundColor Green
+        Write-Host "RDP Address: $public_url" -ForegroundColor Green
+        Write-Host "Username: RunnerAdmin" -ForegroundColor Green
+        Write-Host "Password: GitHubWin10SecureP@ss!" -ForegroundColor Green
+        Write-Host "==========================================================" -ForegroundColor Green
+
+    - name: کامپایل کردن برنامه C++
+      run: |
+        # کامپایل سورس کد C++ با استفاده از کامپایلر مایکروسافت (cl.exe)
+        cl.exe /EHsc main.cpp
+
+    - name: اجرای برنامه C++ جهت مدیریت زمان ۵.۵ ساعت و تریگر مجدد
+      env:
+        GH_PAT: ${{ secrets.GH_PAT }}
+      run: |
+        # اجرای برنامه برای زنده نگه داشتن سرور و راه‌اندازی مجدد خودکار
+        .\main.exe
