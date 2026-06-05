@@ -23,11 +23,22 @@ jobs:
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
         
-        # ساخت یک کاربر دلخواه برای ورود به سیستم
+        # تعریف نام کاربری جدید برای جلوگیری از تداخل با کاربران سیستم
+        $Username = "RdpRunnerAdmin"
         $Password = ConvertTo-SecureString "GitHubWin10SecureP@ss!" -AsPlainText -Force
-        New-LocalUser "RunnerAdmin" -Password $Password -Description "RDP Admin User"
-        Add-LocalGroupMember -Group "Administrators" -Member "RunnerAdmin"
-        Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RunnerAdmin"
+        
+        # بررسی وجود کاربر و ساخت یا آپدیت آن
+        if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
+            Write-Host "User $Username already exists. Updating password..."
+            Set-LocalUser -Name $Username -Password $Password
+        } else {
+            Write-Host "Creating new user $Username..."
+            New-LocalUser $Username -Password $Password -Description "RDP Admin User"
+        }
+        
+        # اضافه کردن کاربر به گروه‌های دسترسی ادمین و ریموت دسکتاپ
+        Add-LocalGroupMember -Group "Administrators" -Member $Username -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction SilentlyContinue
 
     - name: نصب و راه‌اندازی تونل Ngrok برای دسترسی به محیط گرافیکی
       run: |
@@ -35,8 +46,7 @@ jobs:
         Invoke-WebRequest https://bin.equinox.io/c/bTsD89q6id5/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
         Expand-Archive ngrok.zip
         
-        # تنظیم توکن نگراک (باید این سکرت را هم در تنظیمات مخزن ست کنید یا به صورت مستقیم موقتاً قرار دهید)
-        # در صورت تمایل می‌توانید توکن نگراک را هم به عنوان سکرت NGROK_AUTH_TOKEN اضافه کنید
+        # تنظیم توکن نگراک
         .\ngrok\ngrok.exe config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
         
         # اجرای تونل RDP در پس‌زمینه روی پورت ۳۳۸۹ ریموت دسکتاپ
@@ -48,7 +58,7 @@ jobs:
         $public_url = $output.tunnels[0].public_url
         Write-Host "==========================================================" -ForegroundColor Green
         Write-Host "RDP Address: $public_url" -ForegroundColor Green
-        Write-Host "Username: RunnerAdmin" -ForegroundColor Green
+        Write-Host "Username: RdpRunnerAdmin" -ForegroundColor Green
         Write-Host "Password: GitHubWin10SecureP@ss!" -ForegroundColor Green
         Write-Host "==========================================================" -ForegroundColor Green
 
