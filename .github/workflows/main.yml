@@ -59,33 +59,57 @@ jobs:
       shell: powershell
       run: |
         Write-Host "Downloading Cloudflared..."
+        # دانلود نسخه پایدار و پرتابل کلودفلرد
         Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "cloudflared.exe"
         
         Write-Host "Starting Cloudflare Quick Tunnel on port 8080 (Web Desktop)..."
-        # هدایت ترافیک وب‌دسکتاپ به سرورهای پرسرعت کلودفلر
-        Start-Process .\cloudflared.exe -ArgumentList "tunnel --url http://localhost:8080" -RedirectStandardError ".\cf_tunnel.log"
+        # ایجاد فایل‌های لاگ قبل از اجرای فرآیندها جهت جلوگیری از خطای دسترسی سیستم
+        New-Item -Path ".\cf_tunnel.log" -ItemType File -Force | Out-Null
+        New-Item -Path ".\cf_rdp_tunnel.log" -ItemType File -Force | Out-Null
+        
+        # هدایت ترافیک وب‌دسکتاپ به سرورهای پرسرعت کلودفلر به صورت پس‌زمینه ایمن
+        Start-Process .\cloudflared.exe -ArgumentList "tunnel --url http://localhost:8080" -RedirectStandardError ".\cf_tunnel.log" -WindowStyle Hidden
         
         Write-Host "Starting Cloudflare RDP Tunnel on port 3389 (Native RDP)..."
         # هدایت ترافیک مستقیم ریموت دسکتاپ به کلودفلر
-        Start-Process .\cloudflared.exe -ArgumentList "tunnel --url tcp://localhost:3389" -RedirectStandardError ".\cf_rdp_tunnel.log"
+        Start-Process .\cloudflared.exe -ArgumentList "tunnel --url tcp://localhost:3389" -RedirectStandardError ".\cf_rdp_tunnel.log" -WindowStyle Hidden
         
-        # انتظار برای ساخت دامنه‌ها توسط کلودفلر
-        Start-Sleep -Seconds 12
+        # انتظار اولیه برای بالا آمدن اتصال شبکه کلودفلر
+        Write-Host "Waiting for Cloudflare to assign active public domains (approx. 15 seconds)..."
+        Start-Sleep -Seconds 15
         
-        $web_url = $null
-        $rdp_url = $null
+        $web_url = "Not Found"
+        $rdp_url = "Not Found"
         
-        # استخراج دامنه‌های ساخته شده
-        if (Test-Path ".\cf_tunnel.log") {
-            $log = Get-Content ".\cf_tunnel.log" -Raw
-            if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
-                $web_url = $matches[0]
+        # تلاش هوشمندانه برای استخراج آدرس‌ها بدون بروز خطا در مانیتورینگ
+        try {
+            if (Test-Path ".\cf_tunnel.log") {
+                $log = Get-Content ".\cf_tunnel.log" -Raw
+                if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") {
+                    $web_url = $matches[0]
+                }
             }
+            if (Test-Path ".\cf_rdp_tunnel.log") {
+                $log_rdp = Get-Content ".\cf_rdp_tunnel.log" -Raw
+                if ($log_rdp -match "tcp://[a-zA-Z0-9-]+\.trycloudflare\.com:\d+") {
+                    $rdp_url = $matches[0]
+                }
+            }
+        } catch {
+            Write-Host "Warning: Error reading cloudflare logs, retrying in 5 seconds..."
+            Start-Sleep -Seconds 5
         }
-        if (Test-Path ".\cf_rdp_tunnel.log") {
-            $log_rdp = Get-Content ".\cf_rdp_tunnel.log" -Raw
-            if ($log_rdp -match "tcp://[a-zA-Z0-9-]+\.trycloudflare\.com:\d+") {
-                $rdp_url = $matches[0]
+        
+        # اگر آدرس‌ها در تلاش اول پیدا نشدند، یک‌بار دیگر با دقت بیشتر تلاش می‌کند
+        if ($web_url -eq "Not Found" -or $rdp_url -eq "Not Found") {
+            Write-Host "Retrying domain extraction..."
+            if (Test-Path ".\cf_tunnel.log") {
+                $log = Get-Content ".\cf_tunnel.log" -Raw
+                if ($log -match "https://[a-zA-Z0-9-]+\.trycloudflare\.com") { $web_url = $matches[0] }
+            }
+            if (Test-Path ".\cf_rdp_tunnel.log") {
+                $log_rdp = Get-Content ".\cf_rdp_tunnel.log" -Raw
+                if ($log_rdp -match "tcp://[a-zA-Z0-9-]+\.trycloudflare\.com:\d+") { $rdp_url = $matches[0] }
             }
         }
         
@@ -98,7 +122,6 @@ jobs:
         Write-Host "Then click 'Connect' and enter password: GitHubWin10SecureP@ss!" -ForegroundColor LightYellow
         Write-Host "----------------------------------------------------------" -ForegroundColor Green
         Write-Host "METHOD 2: NATIVE RDP CONNECTION USING RD CLIENT APP:" -ForegroundColor Yellow
-        Write-Host "To use RD Client App, you need Cloudflared on your phone (via Termux/iSH)." -ForegroundColor Yellow
         Write-Host "RDP Target Host: $rdp_url" -ForegroundColor Cyan
         Write-Host "==========================================================" -ForegroundColor Green
 
