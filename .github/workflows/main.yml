@@ -1,6 +1,6 @@
 name: Windows 10 Keep Alive RDP
 
-# اجرای دستی یا دریافت ریکوئست از API (توسط کد C++)
+# اجرای دستی یا دریافت ریکوئست از API (توسط پایتون)
 on:
   workflow_dispatch:
 
@@ -13,9 +13,6 @@ jobs:
     - name: دریافت کدهای مخزن
       uses: actions/checkout@v4
 
-    - name: تنظیم ابزارهای C++ (MSVC)
-      uses: ilammy/msvc-dev-cmd@v1
-
     - name: فعال‌سازی، راه‌اندازی سرویس RDP و تنظیم فایروال ویندوز
       shell: powershell
       run: |
@@ -24,16 +21,15 @@ jobs:
         # ۱. فعال‌سازی ریموت دسکتاپ در رجیستری
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         
-        # ۲. غیرفعال کردن NLA برای سازگاری کامل با کلاینت‌های موبایل (بسیار مهم)
+        # ۲. غیرفعال کردن NLA برای سازگاری کامل با کلاینت‌های موبایل
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
         
-        # ۳. تنظیم و استارت اجباری سرویس ریموت دسکتاپ ویندوز (TermService)
+        # ۳. تنظیم و استارت سرویس ریموت دسکتاپ ویندوز (بدون پارامتر اشتباه -Force)
         Set-Service -Name "TermService" -StartupType Automatic
-        Start-Service -Name "TermService" -Force
+        Start-Service -Name "TermService"
         
         # ۴. باز کردن کامل فایروال ویندوز برای پورت RDP (3389)
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        netsh advfirewall firewall set rule group="remote desktop" new enable=Yes
         
         # ۵. ساخت کاربر ادمین برای اتصال شما
         $Username = "RdpRunnerAdmin"
@@ -100,14 +96,9 @@ jobs:
             exit 1
         }
 
-    - name: کامپایل کردن برنامه C++
-      run: |
-        # کامپایل سورس کد C++ با استفاده از کامپایلر مایکروسافت (cl.exe)
-        cl.exe /EHsc main.cpp
-
-    - name: اجرای برنامه C++ جهت مدیریت زمان ۵.۵ ساعت و تریگر مجدد
+    - name: تنظیم مانیتورینگ و اجرای برنامه پایتون جهت زنده نگه داشتن سرور
       env:
         GH_PAT: ${{ secrets.GH_PAT }}
       run: |
-        # اجرای برنامه برای زنده نگه داشتن سرور و راه‌اندازی مجدد خودکار
-        .\main.exe
+        # اجرای اسکریپت پایتون
+        python keep_alive.py
